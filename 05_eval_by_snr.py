@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 This script is now responsible for evaluating the full AMC pipeline, including:
@@ -18,13 +19,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import accuracy_score, confusion_matrix
 from evaluation_utils import (
-    MOD_FAMILIES,
-    FAMILY_TARGET_COVERAGE,
-    select_family_thresholds,
-    apply_family_thresholds,
     print_evaluation_summary,
     plot_confusion_matrix_with_abstention,
-    plot_evaluation_curves
+    plot_evaluation_curves,
+    get_abstention_results
 )
 
 # --- Configuration ---
@@ -46,7 +44,6 @@ SCALER_PATH = os.path.join(MODEL_DIR, f"scaler_perkey{PER_KEY}.joblib")
 GEN_MODEL_PATH = os.path.join(MODEL_DIR, f"gen_model_qda_perkey{PER_KEY}.joblib")
 XGB_MODEL_PATH = os.path.join(MODEL_DIR, f"xgb_model_perkey{PER_KEY}.joblib")
 LE_PATH = os.path.join(MODEL_DIR, f"label_encoder_perkey{PER_KEY}.joblib")
-
 
 def create_meta_features(gen_model, X_scaled):
     """Helper to create meta-features. Must be identical to the one in training."""
@@ -83,31 +80,23 @@ def main():
     X_val_meta = create_meta_features(gen_model, X_val_scaled)
     X_test_meta = create_meta_features(gen_model, X_test_scaled)
 
-    # --- 3. Select Abstention Thresholds for each Family on Validation Set ---
-    print("\n--- Selecting Abstention Thresholds by Family ---")
-    y_prob_val = xgb_model.predict_proba(X_val_meta)
-    
-    family_thresholds = select_family_thresholds(
-        y_prob_val,
-        y_val_str, # Use string labels to map to families
-        MOD_FAMILIES,
-        FAMILY_TARGET_COVERAGE
+    # --- 3. Select Abstention Thresholds and Apply to Test Set (Centralized) ---
+    family_thresholds, y_pred_abstained = get_abstention_results(
+        xgb_model, X_val_meta, y_val_str, X_test_meta, le
     )
-    print("Selected Abstention Thresholds (tau) by Family:")
-    for family, tau in family_thresholds.items():
-        print(f"  - {family:<8}: {tau:.4f}")
 
     # --- 4. Final Evaluation on Test Set ---
     print("\n--- Final Evaluation on Test Set ---")
     y_prob_test = xgb_model.predict_proba(X_test_meta)
     y_pred_int_full = np.argmax(y_prob_test, axis=1)
-    y_pred_abstained = apply_family_thresholds(y_prob_test, family_thresholds, le, MOD_FAMILIES)
 
     # Print a summary of metrics
     print_evaluation_summary(y_test_int, y_pred_int_full, y_pred_abstained)
 
     # --- Plotting and Saving Results ---
     print("\n--- Plotting and Saving Results ---")
+    # Re-calculate y_prob_val as it's needed for plotting but was local to the helper function
+    y_prob_val = xgb_model.predict_proba(X_val_meta)
     output_dir = "plots"
     os.makedirs(output_dir, exist_ok=True)
     print(f"Plots will be saved to '{output_dir}/'")

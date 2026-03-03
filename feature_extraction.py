@@ -1,228 +1,152 @@
+
 import numpy as np
 import pywt
 
-EPS = 1e-12
+# Epsilon for numerical stability
+EPS = 1e-9
 
-# ----------------------------
-# Basic stats helpers
-# ----------------------------
-def _skew(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=np.float64)
-    mu = x.mean()
-    sd = x.std()
-    # If std is zero, skewness is not well-defined, return 0
-    if sd < EPS:
-        return 0.0
-    return float(np.mean(((x - mu) / sd) ** 3))
+def _histogram_entropy(x: np.ndarray, bins: int = 10) -> float:
+    """Calculate the Shannon entropy of a signal's histogram."""
+    counts, _ = np.histogram(x, bins=bins, density=True)
+    pk = counts / (np.sum(counts) + EPS)
+    return -np.sum(pk * np.log2(pk + EPS))
 
-def _kurt(x: np.ndarray) -> float:
-    x = np.asarray(x, dtype=np.float64)
-    mu = x.mean()
-    sd = x.std()
-    # If std is zero, kurtosis is not well-defined, return 0
-    if sd < EPS:
-        return 0.0
-    return float(np.mean(((x - mu) / sd) ** 4))
+def _analog_disambiguation_features(amp: np.ndarray, dphase: np.ndarray) -> list[float]:
+    """Features to distinguish WBFM (frequency varies) vs AM-DSB (amplitude varies)."""
+    # Envelope/Amplitude Features (high for AM, low for FM)
+    amp_cov = np.std(amp) / (np.mean(amp) + EPS)
+    papr = np.max(amp**2) / (np.mean(amp**2) + EPS)
+    amp_iqr = np.quantile(amp, 0.75) - np.quantile(amp, 0.25)
+    amp_entropy = _histogram_entropy(amp)
 
-def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-    c = np.corrcoef(a, b)[0, 1]
-    if np.isnan(c) or np.isinf(c):
-        return 0.0
-    return float(c)
+    # Instantaneous Frequency/dphase Features (high for FM, low for AM)
+    dphase_abs = np.abs(dphase)
+    dphase_abs_mean = np.mean(dphase_abs)
+    dphase_abs_std = np.std(dphase_abs)
+    dphase_abs_max = np.max(dphase_abs)
+    dphase_sign_change_rate = np.mean(np.diff(np.sign(dphase)) != 0)
+    dphase_entropy = _histogram_entropy(dphase)
 
-# ----------------------------
-# Preprocessing (zero-center + normalize)
-# ----------------------------
-def preprocess_iq(I: np.ndarray, Q: np.ndarray, mode: str = "zero_mean_rms") -> np.ndarray:
-    """
-    mode options:
-      - "none": no preprocessing
-      - "zero_mean_rms": remove DC and normalize by complex RMS energy
-      - "zero_mean_std": remove DC and normalize I/Q separately by std
-    Return: complex baseband s (length 128)
-    """
-    I = np.asarray(I, dtype=np.float64)
-    Q = np.asarray(Q, dtype=np.float64)
+    # Coupling Features (measures if envelope and frequency are related)
+    power = amp**2
+    corr_amp_dphase = np.corrcoef(amp, dphase_abs)[0, 1]
+    corr_power_dphase = np.corrcoef(power, dphase_abs)[0, 1]
 
-    if mode in ("zero_mean_rms", "zero_mean_std"):
-        I = I - I.mean()
-        Q = Q - Q.mean()
-
-    if mode == "none":
-        return I + 1j * Q
-
-    if mode == "zero_mean_rms":
-        s = I + 1j * Q
-        rms = np.sqrt(np.mean(np.abs(s) ** 2)) + EPS
-        return s / rms
-
-    if mode == "zero_mean_std":
-        I = I / (I.std() + EPS)
-        Q = Q / (Q.std() + EPS)
-        return I + 1j * Q
-
-    raise ValueError(f"Unknown preprocess mode: {mode}")
-
-# ----------------------------
-# Multi-scale FFT spectrum features
-# ----------------------------
-def multi_scale_spectrum_features(s: np.ndarray, scales=(2, 4, 8)) -> list:
-    """
-    Multi-scale spectrum features by binning FFT magnitude spectrum into k groups.
-    For each k in scales, compute:
-      - entropy
-      - peak_num (bins > mean + 2*std)
-      - top1
-      - top2
-    Return list length = len(scales) * 4
-    """
-    mag = np.abs(np.fft.fft(s))
-    mag = mag / (mag.sum() + EPS)
-
-    feats = []
-    for k in scales:
-        bins = np.array_split(mag, k)
-        coarse = np.array([b.mean() for b in bins], dtype=np.float64)
-        coarse = coarse / (coarse.sum() + EPS)
-
-        ent = -np.sum(coarse * np.log(coarse + EPS))
-        thr = coarse.mean() + 2 * coarse.std()
-        peak_num = int(np.sum(coarse > thr))
-        top1 = float(np.max(coarse))
-        top2 = float(np.partition(coarse, -2)[-2])
-
-        feats.extend([float(ent), float(peak_num), top1, top2])
-
-    return feats
-
-# ----------------------------
-# Wavelet features
-# ----------------------------
-def wavelet_features(s: np.ndarray, wavelet: str = 'db4', level: int = 4) -> list:
-    """
-    Extracts wavelet features from the complex signal.
-    For each decomposition level, compute for both I and Q components:
-      - Energy of approximation coefficients (cA)
-      - Energy of detail coefficients (cD)
-      - Entropy of cA
-      - Entropy of cD
-    Return list length = level * 4 (I) + level * 4 (Q)
-    """
-    # Decompose I and Q components separately
-    I = np.real(s)
-    Q = np.imag(s)
-
-    def _get_feats(x: np.ndarray, wavelet: str, level: int) -> list:
-        coeffs = pywt.wavedec(x, wavelet, level=level)
-        feats = []
-        for c in coeffs:
-            # Energy
-            energy = np.sum(c**2)
-            # Entropy
-            c_norm = c**2 / (energy + EPS)
-            entropy = -np.sum(c_norm * np.log2(c_norm + EPS))
-            feats.extend([energy, entropy])
-        return feats
-
-    feats_i = _get_feats(I, wavelet, level)
-    feats_q = _get_feats(Q, wavelet, level)
-
-    return feats_i + feats_q
-
-# ----------------------------
-# Main feature extraction
-# ----------------------------
-def extract_features(x_2x128: np.ndarray,
-                     preprocess_mode: str = "zero_mean_rms",
-                     ms_scales=(2, 4, 8)) -> np.ndarray:
-    """
-    Input: x_2x128 shape (2, 128), where x[0]=I, x[1]=Q
-    Output: feature vector (float32), shape (D,)
-      D = 24 (base) + 4*len(ms_scales) (multi-scale FFT)
-        = 24 + 12 = 36 (default)
-    """
-    x_2x128 = np.asarray(x_2x128)
-    assert x_2x128.shape == (2, 128), f"Expected (2,128), got {x_2x128.shape}"
-
-    I_raw = x_2x128[0]
-    Q_raw = x_2x128[1]
-
-    # preprocessing
-    s = preprocess_iq(I_raw, Q_raw, mode=preprocess_mode)
-
-    # If you still want raw I/Q stats too, use preprocessed real/imag:
-    I = np.real(s)
-    Q = np.imag(s)
-
-    amp = np.abs(s)               # amplitude
-    pwr = amp ** 2                # power
-
-    # phase / inst. phase increment (proxy for inst. freq)
-    ph = np.unwrap(np.angle(s))
-    dph = np.diff(ph)
-
-    # FFT magnitude spectrum (full resolution)
-    S = np.fft.fft(s)
-    mag = np.abs(S)
-    pmag = mag / (mag.sum() + EPS)  # normalized spectrum "probability"
-
-    # spectral entropy (full resolution)
-    spec_entropy = float(-np.sum(pmag * np.log(pmag + EPS)))
-
-    # peak count (full resolution)
-    thr = pmag.mean() + 2 * pmag.std()
-    peak_num = int(np.sum(pmag > thr))
-
-    # spectral centroid (index-weighted average)
-    k = np.arange(len(pmag), dtype=np.float64)
-    spec_centroid = float(np.sum(k * pmag))
-
-    # top peaks (full resolution)
-    top1 = float(np.max(pmag))
-    top2 = float(np.partition(pmag, -2)[-2])
-
-    # time-domain IQ stats (on preprocessed I/Q)
-    corr_iq = _safe_corr(I, Q)
-
-    # amplitude modulation depth (rough) -- on preprocessed amp
-    am_depth = float((amp.max() - amp.min()) / (amp.mean() + EPS))
-
-    # multi-scale FFT features (2/4/8 bins)
-    ms_feats = multi_scale_spectrum_features(s, scales=ms_scales)
-
-    # wavelet features
-    wv_feats = wavelet_features(s, wavelet='db4', level=4)
-
-    feats = [
-        # amplitude stats
-        float(amp.mean()), float(amp.std()), _skew(amp), _kurt(amp),
-        # power stats
-        float(pwr.mean()), float(pwr.std()),
-        # peak-to-rms
-        float(amp.max() / (np.sqrt(np.mean(amp**2)) + EPS)),
-        # AM depth
-        am_depth,
-        # phase stats
-        float(ph.mean()), float(ph.std()),
-        # dphase stats
-        float(dph.mean()), float(dph.std()), _skew(dph), _kurt(dph),
-        # I/Q stats
-        float(I.mean()), float(I.std()), float(Q.mean()), float(Q.std()),
-        corr_iq,
-        # spectrum stats (full-res)
-        spec_entropy, float(peak_num), spec_centroid, top1, top2,
-        # multi-scale spectrum stats
-        *ms_feats,
-        # wavelet stats
-        *wv_feats
+    return [
+        amp_cov, papr, amp_iqr, amp_entropy,
+        dphase_abs_mean, dphase_abs_std, dphase_abs_max,
+        dphase_sign_change_rate, dphase_entropy,
+        corr_amp_dphase, corr_power_dphase
     ]
 
-    f = np.array(feats, dtype=np.float32)
+def _qam_radius_features(c_norm: np.ndarray, amp: np.ndarray) -> list[float]:
+    """Features to distinguish QAM16 vs QAM64 based on constellation geometry."""
+    # Amplitude/Radius Distribution Features
+    q = np.quantile(amp, [0.1, 0.25, 0.5, 0.75, 0.9])
+    q10, q25, q50, q75, q90 = q.tolist()
+    gap_iqr = q75 - q25
+    gap_outer = q90 - q10
+    norm_radius_var = np.var(amp)
+    amp_entropy = _histogram_entropy(amp)
+    amp_hist_counts, _ = np.histogram(amp, bins=4, range=(0, 2.0))
+    occupied_bins = np.sum(amp_hist_counts > 0)
 
-    # sanitize
-    if not np.all(np.isfinite(f)):
-        f = np.nan_to_num(f, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+    # Higher-Order Complex Moment Features
+    m20 = np.mean(c_norm**2)
+    m21 = np.mean(c_norm * np.conj(c_norm))
+    m40 = np.mean(c_norm**4)
+    m42 = np.mean(c_norm**2 * np.conj(c_norm)**2) # Correct complex definition
 
-    return f
+    feat_m20_norm = np.abs(m20) / (m21 + EPS)
+    feat_m40_norm = np.abs(m40) / (m21**2 + EPS)
+    
+    # For the complex moment m42, use its real and imaginary parts as separate features
+    m42_norm = m42 / (m21**2 + EPS)
+    feat_m42_real = np.real(m42_norm)
+    feat_m42_imag = np.imag(m42_norm)
+
+    return [
+        q10, q25, q50, q75, q90, gap_iqr, gap_outer,
+        norm_radius_var, amp_entropy, occupied_bins,
+        feat_m20_norm, feat_m40_norm, feat_m42_real, feat_m42_imag
+    ]
+
+def _iq_geometry_features(i: np.ndarray, q: np.ndarray) -> list[float]:
+    """Auxiliary features based on I/Q component geometry."""
+    i_energy = np.sum(i**2)
+    q_energy = np.sum(q**2)
+    iq_energy_ratio = i_energy / (q_energy + EPS)
+    iq_energy_diff_norm = (i_energy - q_energy) / (i_energy + q_energy + EPS)
+    iq_std_ratio = np.std(i) / (np.std(q) + EPS)
+    iq_corr = np.corrcoef(i, q)[0, 1]
+    
+    cov_matrix = np.cov(i, q)
+    # Use eigvalsh for real symmetric matrices, guarantees real eigenvalues
+    eigvals = np.linalg.eigvalsh(cov_matrix)
+    cov_eig_ratio = np.max(eigvals) / (np.min(eigvals) + EPS)
+    
+    return [iq_energy_ratio, iq_energy_diff_norm, iq_std_ratio, iq_corr, cov_eig_ratio]
+
+def _wavelet_features(x: np.ndarray, wavelet: str = 'db4', max_level: int = 4) -> list[float]:
+    """Calculates compact wavelet features (energy and entropy)."""
+    try:
+        coeffs_i = pywt.wavedec(x[0, :], wavelet, level=max_level)
+        coeffs_q = pywt.wavedec(x[1, :], wavelet, level=max_level)
+        features = []
+        for d_i, d_q in zip(coeffs_i[1:], coeffs_q[1:]):
+            d_mag = np.abs(d_i + 1j * d_q)
+            features.append(np.sum(d_mag**2))
+            features.append(_histogram_entropy(d_mag))
+        return features
+    except ImportError:
+        return []
+
+def extract_features(
+    x: np.ndarray,
+    add_analog_features: bool = True,
+    add_qam_features: bool = True,
+    add_iq_features: bool = True,
+    add_wavelet: bool = True
+) -> np.ndarray:
+    """
+    Main feature extraction function, refactored for targeted feature addition.
+    """
+    # --- 1. Preprocessing ---
+    i, q = x[0, :], x[1, :]
+    c = i + 1j * q
+    c -= np.mean(c)
+    c_norm = c / np.sqrt(np.mean(np.abs(c)**2) + EPS)
+    
+    amplitude = np.abs(c_norm)
+    phase_unwrapped = np.unwrap(np.angle(c_norm))
+    dphase = np.diff(phase_unwrapped)
+    dphase = np.concatenate(([dphase[0]], dphase))
+    
+    fft_mag = np.abs(np.fft.fft(c_norm, n=128))
+    fft_mag_shifted = np.fft.fftshift(fft_mag)
+
+    # --- 2. Baseline Feature Calculation (Curated) ---
+    baseline_features = [
+        np.std(amplitude),
+        np.std(phase_unwrapped),
+        np.mean(np.abs(dphase)),
+        np.std(dphase),
+        np.mean(fft_mag_shifted),
+        np.std(fft_mag_shifted),
+        np.exp(np.mean(np.log(fft_mag_shifted + EPS))) / (np.mean(fft_mag_shifted) + EPS)
+    ]
+
+    # --- 3. Targeted & Optional Feature Addition ---
+    all_features = baseline_features.copy()
+    if add_analog_features:
+        all_features.extend(_analog_disambiguation_features(amplitude, dphase))
+    if add_qam_features:
+        all_features.extend(_qam_radius_features(c_norm, amplitude))
+    if add_iq_features:
+        all_features.extend(_iq_geometry_features(i, q))
+    if add_wavelet:
+        all_features.extend(_wavelet_features(x))
+
+    # --- 4. Final Sanitization ---
+    feature_vector = np.array(all_features, dtype=np.float32)
+    return np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)

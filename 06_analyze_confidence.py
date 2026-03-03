@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 This script analyzes the model's prediction confidence on the samples
@@ -10,18 +11,14 @@ import os
 import numpy as np
 import joblib
 from evaluation_utils import (
-    MOD_FAMILIES,
-    FAMILY_TARGET_COVERAGE,
     calculate_log_margins,
-    select_family_thresholds,
-    apply_family_thresholds
+    get_abstention_results
 )
 
 # --- Configuration ---
 PER_KEY = 2000
 DATA_DIR = "data_cache"
 MODEL_DIR = "models"
-TARGET_COVERAGE = 0.5  # Use the same coverage target as the main evaluation
 
 # --- Input Data Paths ---
 X_VAL_PATH = os.path.join(DATA_DIR, f"perkey{PER_KEY}_X_val.npy")
@@ -35,14 +32,12 @@ GEN_MODEL_PATH = os.path.join(MODEL_DIR, f"gen_model_qda_perkey{PER_KEY}.joblib"
 XGB_MODEL_PATH = os.path.join(MODEL_DIR, f"xgb_model_perkey{PER_KEY}.joblib")
 LE_PATH = os.path.join(MODEL_DIR, f"label_encoder_perkey{PER_KEY}.joblib")
 
-
 def create_meta_features(gen_model, X_scaled):
     """Helper to create meta-features. Must be identical to the one in training."""
     log_post = gen_model.predict_log_proba(X_scaled)
     sorted_log_post = np.sort(log_post, axis=1)
     margin_gen = (sorted_log_post[:, -1] - sorted_log_post[:, -2]).reshape(-1, 1)
     return np.hstack([X_scaled, log_post, margin_gen])
-
 
 def main():
     """Main confidence analysis pipeline."""
@@ -75,29 +70,21 @@ def main():
     X_val_meta = create_meta_features(gen_model, X_val_scaled)
     X_test_meta = create_meta_features(gen_model, X_test_scaled)
 
-    # --- 3. Determine Abstention Thresholds from Validation Set ---
-    print(f"Determining family-based abstention thresholds...")
-    y_prob_val = xgb_model.predict_proba(X_val_meta)
-    family_thresholds = select_family_thresholds(
-        y_prob_val,
-        y_val_str,
-        MOD_FAMILIES,
-        FAMILY_TARGET_COVERAGE
+    # --- 3. Determine Abstention Thresholds and Apply to Test Set (Centralized) ---
+    family_thresholds, y_pred_abstained = get_abstention_results(
+        xgb_model, X_val_meta, y_val_str, X_test_meta, le
     )
-    print("Using abstention thresholds (tau) by Family:")
-    for family, tau in family_thresholds.items():
-        print(f"  - {family:<8}: {tau:.4f}")
 
     # --- 4. Get Predictions and Margins for the Test Set ---
     y_prob_test = xgb_model.predict_proba(X_test_meta)
     margins_test = calculate_log_margins(y_prob_test)
 
     # --- 5. Filter for Accepted Samples ---
-    accepted_mask = margins_test >= tau
+    accepted_mask = (y_pred_abstained != -1)
     num_total = len(y_test_int)
     num_accepted = np.sum(accepted_mask)
     print(f"\nTotal samples in test set: {num_total}")
-    print(f"Accepted samples (margin >= tau): {num_accepted} ({num_accepted/num_total:.2%})")
+    print(f"Accepted samples: {num_accepted} ({num_accepted/num_total:.2%})")
 
     accepted_margins = margins_test[accepted_mask]
     accepted_true_labels_int = y_test_int[accepted_mask]

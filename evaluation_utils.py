@@ -146,6 +146,118 @@ def apply_family_thresholds(
             
     return y_pred_abstained
 
+
+def get_abstention_results(
+    xgb_model,
+    X_val_meta: np.ndarray,
+    y_val_str: np.ndarray,
+    X_test_meta: np.ndarray,
+    le: "LabelEncoder"
+) -> tuple[dict, np.ndarray]:
+    """
+    Centralized logic for selecting and applying family-based abstention.
+
+    This function ensures that threshold selection (on validation) and application
+    (on test) are performed identically across all analysis scripts.
+
+    Args:
+        xgb_model: The trained XGBoost classifier.
+        X_val_meta (np.ndarray): Meta-features for the validation set.
+        y_val_str (np.ndarray): String labels for the validation set.
+        X_test_meta (np.ndarray): Meta-features for the test set.
+        le (LabelEncoder): The fitted label encoder.
+
+    Returns:
+        tuple[dict, np.ndarray]:
+            - A dictionary of family-specific thresholds.
+            - The abstained prediction array for the test set.
+    """
+    print("--- Running Centralized Abstention Logic ---")
+    # 1. Select thresholds on the validation set
+    y_prob_val = xgb_model.predict_proba(X_val_meta)
+    family_thresholds = select_family_thresholds(
+        y_prob_val,
+        y_val_str,
+        MOD_FAMILIES,
+        FAMILY_TARGET_COVERAGE
+    )
+    print("Selected Abstention Thresholds (tau) by Family (from validation set):")
+    for family, tau in family_thresholds.items():
+        print(f"  - {family:<8}: {tau:.4f}")
+
+    # 2. Apply the selected thresholds to the test set
+    y_prob_test = xgb_model.predict_proba(X_test_meta)
+    y_pred_abstained = apply_family_thresholds(
+        y_prob_test,
+        family_thresholds,
+        le,
+        MOD_FAMILIES
+    )
+
+    # 3. Consistency Check
+    accepted_count = np.sum(y_pred_abstained != -1)
+    total_count = len(y_pred_abstained)
+    print(f"Consistency Check: {accepted_count} / {total_count} samples accepted in test set.")
+    print("------------------------------------------")
+
+    return family_thresholds, y_pred_abstained
+
+
+def get_abstention_results(
+    xgb_model,
+    X_val_meta: np.ndarray,
+    y_val_str: np.ndarray,
+    X_test_meta: np.ndarray,
+    le: "LabelEncoder"
+) -> tuple[dict, np.ndarray]:
+    """
+    Centralized logic for selecting and applying family-based abstention.
+
+    This function ensures that threshold selection (on validation) and application
+    (on test) are performed identically across all analysis scripts.
+
+    Args:
+        xgb_model: The trained XGBoost classifier.
+        X_val_meta (np.ndarray): Meta-features for the validation set.
+        y_val_str (np.ndarray): String labels for the validation set.
+        X_test_meta (np.ndarray): Meta-features for the test set.
+        le (LabelEncoder): The fitted label encoder.
+
+    Returns:
+        tuple[dict, np.ndarray]:
+            - A dictionary of family-specific thresholds.
+            - The abstained prediction array for the test set.
+    """
+    print("--- Running Centralized Abstention Logic ---")
+    # 1. Select thresholds on the validation set
+    y_prob_val = xgb_model.predict_proba(X_val_meta)
+    family_thresholds = select_family_thresholds(
+        y_prob_val,
+        y_val_str,
+        MOD_FAMILIES,
+        FAMILY_TARGET_COVERAGE
+    )
+    print("Selected Abstention Thresholds (tau) by Family:")
+    for family, tau in family_thresholds.items():
+        print(f"  - {family:<8}: {tau:.4f}")
+
+    # 2. Apply thresholds to the test set
+    y_prob_test = xgb_model.predict_proba(X_test_meta)
+    y_pred_abstained = apply_family_thresholds(
+        y_prob_test,
+        family_thresholds,
+        le,
+        MOD_FAMILIES
+    )
+
+    # 3. Consistency Check
+    accepted_count = np.sum(y_pred_abstained != -1)
+    total_count = len(y_pred_abstained)
+    print(f"Consistency Check: {accepted_count} / {total_count} samples accepted in test set.")
+    print("------------------------------------------")
+
+    return family_thresholds, y_pred_abstained
+
 # --- 绘图与评估函数 ---
 
 def plot_confusion_matrix_with_abstention(

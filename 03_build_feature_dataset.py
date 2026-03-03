@@ -78,16 +78,22 @@ def main():
     print("Building feature dataset...")
     X, y, snr, meta = build_feature_dataset(Xd, PER_KEY, SEED)
 
-    print(f"Total samples: {len(X)}. Splitting into train/val/test with stratification...")
+    print(f"Total samples: {len(X)}. Splitting into train/val/test with joint stratification...")
+
+    # Create a joint stratification key using both modulation and SNR
+    stratify_key = [f"{mod}_{s}" for mod, s in zip(y, snr)]
 
     # First split: 70% training, 30% temporary (for val/test)
-    # Stratify by 'y' (modulation type) to ensure balanced classes in all sets
-    X_train, X_temp, y_train, y_temp, snr_train, snr_temp = train_test_split(
-        X, y, snr,
+    # Stratify by the joint key to ensure balanced classes in all sets
+    X_train, X_temp, y_train, y_temp, snr_train, snr_temp, indices_train, indices_temp = train_test_split(
+        X, y, snr, np.arange(len(y)),
         test_size=0.3,
         random_state=SEED,
-        stratify=y
+        stratify=stratify_key
     )
+
+    # Create a new stratification key for the temporary set based on original indices
+    stratify_key_temp = [stratify_key[i] for i in indices_temp]
 
     # Second split: 50% of temporary set for validation, 50% for testing
     # This results in 15% validation and 15% test of the original dataset
@@ -95,7 +101,7 @@ def main():
         X_temp, y_temp, snr_temp,
         test_size=0.5,
         random_state=SEED,
-        stratify=y_temp
+        stratify=stratify_key_temp
     )
 
     print("Splitting complete.")
