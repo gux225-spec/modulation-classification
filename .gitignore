@@ -1,0 +1,15 @@
+﻿__pycache__/
+*.pyc
+.idea/
+.vscode/
+
+data_cache/
+models/
+plots/
+
+RML2016.10b.dat
+*.dat
+*.npz
+*.pt
+*.pth
+*.ckpt
