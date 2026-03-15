@@ -2,11 +2,11 @@ import numpy as np
 from scipy.stats import skew, kurtosis
 from sklearn.cluster import KMeans
 
-# --- 辅助函数 ---
+#Utility Functions 
 EPS = 1e-9
 
 def _calculate_stats(data: np.ndarray, prefix: str) -> dict:
-    """计算一维数组的基本统计量"""
+    """Calculate basic statistics for a one-dimensional array"""
     if data.size == 0:
         return {
             f'{prefix}_mean': 0.0, f'{prefix}_std': 0.0,
@@ -20,21 +20,21 @@ def _calculate_stats(data: np.ndarray, prefix: str) -> dict:
     }
 
 def _histogram_features(data: np.ndarray, bins: int, prefix: str) -> dict:
-    """从直方图中提取熵、峰值度、峰数等特征"""
+    """Extract features such as entropy, kurtosis, and the number of peaks from the histogram"""
     if data.size == 0:
         return {f'{prefix}_hist_entropy': 0.0, f'{prefix}_hist_peakiness': 0.0, f'{prefix}_hist_num_peaks': 0.0}
         
     hist, _ = np.histogram(data, bins=bins, density=True)
-    hist_norm = hist * np.diff(_)[0] # 归一化使和为1
+    hist_norm = hist * np.diff(_)[0] # Normalization sets the sum to 1
     
-    # 熵
+    # Entropy
     entropy = -np.sum(hist_norm[hist_norm > 0] * np.log2(hist_norm[hist_norm > 0]))
     
-    # 峰值度
+    # Peak value
     peakiness = np.max(hist_norm) if hist_norm.size > 0 else 0.0
     
-    # 峰数 (简单的局部最大值)
-    # 忽略边缘，寻找 hist[i-1] < hist[i] > hist[i+1]
+    # Number of peaks (simple local maxima)
+    # Ignore the edges and look for hist[i-1] < hist[i] > hist[i+1]
     peaks = 0
     if hist_norm.size > 2:
         for i in range(1, len(hist_norm) - 1):
@@ -47,22 +47,22 @@ def _histogram_features(data: np.ndarray, bins: int, prefix: str) -> dict:
         f'{prefix}_hist_num_peaks': float(peaks)
     }
 
-# --- 主特征提取函数 ---
+# Main Feature Extraction Function
 
 def extract_disambiguation_features(x_2x128: np.ndarray) -> np.ndarray:
     """
-    为单个IQ样本(2, 128)提取专门用于区分混淆对的补充特征。
+    Extract supplementary features specifically designed to distinguish confounding pairs from a single IQ sample (2, 128).
 
     Args:
-        x_2x128 (np.ndarray): 输入的单个IQ样本，形状为 (2, 128)。
+        x_2x128 (np.ndarray): The input single IQ sample, with shape (2, 128).
 
     Returns:
-        np.ndarray: 包含所有新特征的一维numpy向量。
+        np.ndarray: A one-dimensional NumPy array containing all new features.
     """
     s = x_2x128[0, :] + 1j * x_2x128[1, :]
     features = {}
 
-    # A) QAM16 vs QAM64 (幅度特征)
+    # A) QAM16 vs QAM64 (Amplitude characteristics)
     r = np.abs(s)
     q = np.quantile(r, [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95])
     features.update({
@@ -73,7 +73,7 @@ def extract_disambiguation_features(x_2x128: np.ndarray) -> np.ndarray:
     features['amp_iqr_75_25'] = q[4] - q[2]
     features.update(_histogram_features(r, bins=32, prefix='amp'))
 
-    # B) QPSK vs 8PSK (相位特征)
+    # B) QPSK vs 8PSK (Phase characteristics)
     phi = np.unwrap(np.angle(s))
     dphi = np.diff(phi)
     dphi_wrapped = np.angle(np.exp(1j * dphi)) # wrap to [-pi, pi]
@@ -94,8 +94,8 @@ def extract_disambiguation_features(x_2x128: np.ndarray) -> np.ndarray:
         peak_power = np.max(s_m_power) if total_power > EPS else 0.0
         features[f'phase_M{M}_fft_peak_ratio'] = peak_power / (total_power + EPS)
 
-    # C) WBFM vs AM-DSB (瞬时频率 vs 包络)
-    inst_freq = dphi_wrapped / (2 * np.pi) # 归一化
+    # C) WBFM vs AM-DSB (Instantaneous Frequency vs. Envelope)
+    inst_freq = dphi_wrapped / (2 * np.pi) # Normalization
     features.update(_calculate_stats(inst_freq, 'inst_freq'))
     features.update(_histogram_features(inst_freq, bins=16, prefix='inst_freq'))
     
@@ -115,35 +115,35 @@ def extract_disambiguation_features(x_2x128: np.ndarray) -> np.ndarray:
         occupied_bw_90 = 1.0
     features['occupied_bw_90'] = occupied_bw_90
 
-    # D) BPSK vs PAM4 (I分量幅度特征)
+    # D) BPSK vs PAM4 (I Amplitude Characteristics)
     I = x_2x128[0, :]
     features.update(_histogram_features(I, bins=16, prefix='I'))
     features['I_kurt'] = kurtosis(I, fisher=False)
 
-    # 按key排序以保证特征顺序恒定
+    # Sort by key to ensure the order of features remains constant
     sorted_features = sorted(features.items())
     return np.array([v for k, v in sorted_features])
 
 def augment_features(Z_base: np.ndarray, X: np.ndarray) -> np.ndarray:
-    """
-    在基础特征矩阵上增强补充特征。
+    """    
+    Adds supplementary features to the base feature matrix.
 
     Args:
-        Z_base (np.ndarray): 基础特征矩阵，形状为 (N, D_base)。
-        X (np.ndarray): 原始IQ数据，形状为 (N, 2, 128)。
+        Z_base (np.ndarray): The base feature matrix, with shape (N, D_base).
+        X (np.ndarray): The raw IQ data, with shape (N, 2, 128).
 
     Returns:
-        np.ndarray: 拼接了新特征的矩阵，形状为 (N, D_base + D_new)。
+        np.ndarray: A matrix with the new features appended, with shape (N, D_base + D_new).
     """
     num_samples = X.shape[0]
     
-    # 使用列表推导式并行化（或简单循环）提取新特征
-    # 注意：如果样本量巨大，可以考虑使用 joblib.Parallel
+    # Use list comprehensions (or simple loops) to extract new features
+    # Note: If the sample size is very large, consider using `joblib.Parallel`.
     Z_new_list = [extract_disambiguation_features(X[i]) for i in range(num_samples)]
     
     Z_new = np.array(Z_new_list)
     
-    # 确保 Z_new 是二维的
+    # Ensure that Z_new is two-dimensional
     if Z_new.ndim == 1:
         Z_new = Z_new.reshape(-1, 1)
         
