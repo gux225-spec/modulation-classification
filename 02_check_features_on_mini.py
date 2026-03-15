@@ -20,7 +20,7 @@ def main():
     y = []
     snr = []
 
-    # 每个 key 抽最多 5 条用于测试
+    # Select up to 5 records from each key for testing
     for (mod, s), arr in Xd_mini.items():
         arr = np.asarray(arr)
         take = min(5, arr.shape[0])
