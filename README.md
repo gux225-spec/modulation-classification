@@ -12,7 +12,7 @@ Second, handcrafted features are extracted from each IQ sample. These features a
 
 Third, the complete feature dataset is built by traversing every modulation-type and SNR combination. The data is then split using a joint stratification strategy based on modulation label and SNR, producing training, validation, and test sets in a 70% / 15% / 15% ratio. This ensures balanced evaluation across both class type and noise condition.
 
-Fourth, a stacked classical machine learning pipeline is trained. A base Quadratic Discriminant Analysis (QDA) model is trained first, and its outputs are used to construct meta-features. These meta-features are then passed to an XGBoost meta-model for final prediction. StandardScaler and LabelEncoder are trained and saved as part of the pipeline.
+Fourth, a stacked classical machine learning pipeline is trained. A base Quadratic Discriminant Analysis (QDA) model is trained first, and its outputs are used to construct meta-features. These meta-features are then passed to an XGBoost meta-model for final prediction. StandardScaler and LabelEncoder are trained and saved as part of the pipeline. Despite the historical script name `04_train_gated_experts.py`, the current implementation does not use a rule-based gate or expert-routing module.
 
 Finally, the project performs multiple evaluation and analysis steps. These include SNR-based accuracy analysis, confidence-margin analysis, abstention with family-level thresholds, confusion-matrix analysis, detailed per-SNR error inspection, and targeted ablation experiments to validate the usefulness of newly designed feature groups.
 
@@ -30,7 +30,10 @@ Finally, the project performs multiple evaluation and analysis steps. These incl
   Core feature engineering module. It converts raw IQ samples into numerically stable `float32` feature vectors and supports modular feature blocks for targeted experiments.
 
 - `04_train_gated_experts.py`  
-  Trains the stacked classical machine learning system. It fits and saves the scaler, label encoder, base QDA model, and XGBoost meta-model.
+  Trains the stacked classical machine learning system. It fits and saves the scaler, label encoder, base QDA model, and XGBoost meta-model. The filename is historical; the current training pipeline is a stacked QDA + XGBoost model rather than a rule-gated expert system.
+
+- `rule_gate.py`  
+  Legacy experimental utility for rule-based modulation grouping and SNR soft gating. It is not imported by the current training, evaluation, or analysis pipeline and is retained only as historical reference.
 
 - `evaluation_utils.py`  
   Shared evaluation utilities. It provides functions for confidence-margin computation, abstention logic, threshold learning, and plotting.
