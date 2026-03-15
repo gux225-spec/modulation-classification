@@ -8,7 +8,7 @@ with open(path, "rb") as f:
 
 print("type(Xd):", type(Xd))
 
-# 最常见：dict，key=(mod, snr)，value=array
+# dict，key=(mod, snr)，value=array
 if isinstance(Xd, dict):
     keys = list(Xd.keys())
     print("num keys:", len(keys))
