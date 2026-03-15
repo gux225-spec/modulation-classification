@@ -15,7 +15,7 @@ def main():
     print("mini type:", type(Xd_mini), "num keys:", len(keys))
     print("example key:", keys[0])
 
-    # 抽一些样本跑特征
+    # Take some samples and run feature extraction
     X_feat = []
     y = []
     snr = []
@@ -40,7 +40,7 @@ def main():
     print("label counts (top 5):", Counter(y).most_common(5))
     print("snr unique (first 10):", np.unique(snr)[:10])
 
-    # 打印第一条特征向量作为 sanity check
+    # Print the first eigenvector as a sanity check
     print("first feature vector (first 10 dims):", X_feat[0][:10])
 
 if __name__ == "__main__":

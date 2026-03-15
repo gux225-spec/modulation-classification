@@ -25,11 +25,11 @@ if isinstance(Xd, dict):
     print("num snrs:", len(snrs))
     print("snrs (first 10):", snrs[:10], "... last 5:", snrs[-5:])
 
-    # 再额外确认 I/Q 维度顺序：常见 (N,2,128) 或 (N,128,2)
+    # verify the I/Q dimension order: typically (N,2,128) or (N,128,2)
     if v.ndim == 3:
         print("One sample shape:", v[0].shape)
         print("first few numbers:", v[0].ravel()[:10])
 else:
-    # 少见情况：不是dict时给个通用信息
+    # Rare case: Provide general information when it is not a dictionary
     arr = np.array(Xd)
     print("as array shape:", arr.shape, "dtype:", arr.dtype)

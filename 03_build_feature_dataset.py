@@ -8,16 +8,14 @@ from sklearn.model_selection import train_test_split
 
 # Avoid KMeans memory leak on Windows with MKL
 os.environ['OMP_NUM_THREADS'] = '1'
-
-# 1) 改成你的 dat 路径
+# 1) data path
 DAT_PATH = r"E:\PycharmProject\DSCI441_MLProject_RML\RML2016.10b.dat\RML2016.10b.dat"
 
-# 2) 输出目录
+# 2) Output directory
 OUT_DIR = "data_cache"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# 3) 抽样策略：每个 (mod, snr) 抽多少条
-#    建议第一次先用 300 或 500，跑快；确认OK后再改 800~2000
+# 3) Sampling Strategy: Number of samples per (mod, snr)=2000
 PER_KEY = 2000
 SEED = 0
 

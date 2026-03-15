@@ -125,7 +125,7 @@ def extract_features(
     fft_mag = np.abs(np.fft.fft(c_norm, n=128))
     fft_mag_shifted = np.fft.fftshift(fft_mag)
 
-    # --- 2. Baseline Feature Calculation (Curated) ---
+    # 2. Baseline Feature Calculation (Curated)
     baseline_features = [
         np.std(amplitude),
         np.std(phase_unwrapped),
@@ -136,7 +136,7 @@ def extract_features(
         np.exp(np.mean(np.log(fft_mag_shifted + EPS))) / (np.mean(fft_mag_shifted) + EPS)
     ]
 
-    # --- 3. Targeted & Optional Feature Addition ---
+    # 3. Targeted & Optional Feature Addition
     all_features = baseline_features.copy()
     if add_analog_features:
         all_features.extend(_analog_disambiguation_features(amplitude, dphase))
@@ -147,6 +147,6 @@ def extract_features(
     if add_wavelet:
         all_features.extend(_wavelet_features(x))
 
-    # --- 4. Final Sanitization ---
+    # 4. Final Sanitization
     feature_vector = np.array(all_features, dtype=np.float32)
     return np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)

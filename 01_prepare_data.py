@@ -30,8 +30,8 @@ def inspect_rml_dict(Xd: dict):
 
 def save_mini_sample(Xd: dict, out_path: str, per_key: int = 20, seed: int = 0):
     """
-    从每个 (mod, snr) key 抽取 per_key 条样本，保存成一个更小的 dict
-    用于后续快速调试（特征、模型等）
+    Extract per_key samples from each (mod, snr) key and store them in a smaller dictionary
+    for quick debugging later
     """
     rng = np.random.default_rng(seed)
     mini = {}
