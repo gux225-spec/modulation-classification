@@ -1,3 +1,9 @@
 streamlit
 numpy
 matplotlib
+pandas
+scikit-learn
+xgboost
+joblib
+scipy
+PyWavelets
