@@ -1,61 +1,222 @@
-# Feature-Based Automatic Modulation Classification Using Classical Machine Learning
+# Automatic Modulation Classification Project
 
-## Summary
-This project focuses on automatic modulation classification using the RML2016.10b dataset. Instead of relying on deep learning, the project adopts a classical machine learning pipeline built on handcrafted feature engineering and stacked modeling. Raw IQ radio signal samples are transformed into interpretable feature vectors, then used to train a two-stage classification system. In addition to overall recognition performance, the project evaluates behavior across different signal-to-noise ratio (SNR) levels, analyzes confidence and abstention patterns, and investigates difficult modulation pairs through targeted error analysis and ablation experiments. The goal is not only to achieve strong classification performance, but also to better understand which signal features remain informative under noisy conditions.
+## Overview
+This submission contains the core Python scripts for an Automatic Modulation Classification (AMC) project based on classical machine learning and handcrafted signal features.
 
-## Methodology
-The project follows a structured pipeline from raw signal data to final evaluation.
+The project has two main parts:
 
-First, the raw RML2016.10b dataset is loaded and inspected to verify its modulation classes, SNR values, and sample structure. A smaller subset is also generated for quick testing and debugging.
+1. A complete AMC pipeline built on the RML2016.10b dataset.
+2. A cross-dataset generalization study that evaluates the trained RML2016.10b model on the CustomMOD-2026.a dataset.
 
-Second, handcrafted features are extracted from each IQ sample. These features are implemented in a modular feature extraction module and include statistical, spectral, and modulation-specific descriptors. The feature design emphasizes physically meaningful signal characteristics and allows optional feature blocks to be turned on or off for later ablation studies.
+The original pipeline transforms raw I/Q radio samples into engineered feature vectors, trains a stacked QDA + XGBoost classifier, and evaluates performance across signal-to-noise ratio (SNR) conditions. The project is then extended to test whether the trained model generalizes to a new dataset containing partially overlapping modulation types.
 
-Third, the complete feature dataset is built by traversing every modulation-type and SNR combination. The data is then split using a joint stratification strategy based on modulation label and SNR, producing training, validation, and test sets in a 70% / 15% / 15% ratio. This ensures balanced evaluation across both class type and noise condition.
+## Project Functionality
+The included code supports:
 
-Fourth, a stacked classical machine learning pipeline is trained. A base Quadratic Discriminant Analysis (QDA) model is trained first, and its outputs are used to construct meta-features. These meta-features are then passed to an XGBoost meta-model for final prediction. StandardScaler and LabelEncoder are trained and saved as part of the pipeline. Despite the historical script name `04_train_gated_experts.py`, the current implementation does not use a rule-based gate or expert-routing module.
+- inspecting and summarizing the original RML2016.10b dataset
+- preparing a mini subset for quick debugging
+- extracting handcrafted statistical, spectral, analog, QAM, IQ-geometry, wavelet, and disambiguation features
+- building train / validation / test feature datasets
+- training a stacked QDA + XGBoost AMC model
+- evaluating model performance by SNR
+- analyzing confidence and abstention behavior
+- performing detailed SNR-stratified confusion analysis
+- preparing overlap-only data from CustomMOD-2026.a
+- evaluating cross-dataset generalization on CustomMOD-2026.a
 
-Finally, the project performs multiple evaluation and analysis steps. These include SNR-based accuracy analysis, confidence-margin analysis, abstention with family-level thresholds, confusion-matrix analysis, detailed per-SNR error inspection, and targeted ablation experiments to validate the usefulness of newly designed feature groups.
+## Included Code Files
 
-## Project Structure
-- `00_inspect_dataset.py`  
-  Loads the original `RML2016.10b.dat` dataset and inspects its structure, including modulation classes, SNR levels, and sample dimensions.
+### Core RML2016.10b pipeline
+- `00_inspect_dataset.py`
+- `01_prepare_data.py`
+- `02_check_features_on_mini.py`
+- `03_build_feature_dataset.py`
+- `04_train_gated_experts.py`
+- `05_eval_by_snr.py`
+- `06_analyze_confidence.py`
+- `07_analyze_by_snr.py`
+- `08_targeted_ablation.py`
+- `run_all.py`
 
-- `01_prepare_data.py`  
-  Prepares the initial dataset and creates a smaller subset file (`rml2016_10b_mini.pkl`) for quick testing.
+### Feature and evaluation modules
+- `feature_extraction.py`
+- `feature_enhancer.py`
+- `evaluation_utils.py`
 
-- `03_build_feature_dataset.py`  
-  Builds the full engineered-feature dataset. It extracts features from raw IQ samples, collects labels and SNR metadata, and performs the joint stratified split into training, validation, and test sets.
+### CustomMOD generalization workflow
+- `09_inspect_custommod.py`
+- `10_prepare_custommod_overlap.py`
+- `11_eval_custommod_generalization.py`
 
-- `feature_extraction.py`  
-  Core feature engineering module. It converts raw IQ samples into numerically stable `float32` feature vectors and supports modular feature blocks for targeted experiments.
+## File-by-File Description
 
-- `04_train_gated_experts.py`  
-  Trains the stacked classical machine learning system. It fits and saves the scaler, label encoder, base QDA model, and XGBoost meta-model. The filename is historical; the current training pipeline is a stacked QDA + XGBoost model rather than a rule-gated expert system.
+### Core RML2016.10b pipeline scripts
+- `00_inspect_dataset.py`: Loads the original RML2016.10b `.dat` file and prints its dictionary structure, modulation classes, SNR values, and sample shape.
+- `01_prepare_data.py`: Creates a smaller debugging subset from the original dataset and saves it for quick inspection.
+- `02_check_features_on_mini.py`: Runs feature extraction on the small subset to verify feature dimensionality and numerical validity.
+- `03_build_feature_dataset.py`: Extracts handcrafted features from the full RML2016.10b dataset and builds train / validation / test splits.
+- `04_train_gated_experts.py`: Trains the current stacked classical pipeline consisting of StandardScaler, QDA or GaussianNB fallback, and the final XGBoost classifier.
+- `05_eval_by_snr.py`: Evaluates the trained model on the RML test set and generates summary evaluation plots.
+- `06_analyze_confidence.py`: Analyzes prediction margin and accepted-sample confidence after the abstention mechanism is applied.
+- `07_analyze_by_snr.py`: Performs detailed SNR-level analysis, including per-SNR accuracy, confusion behavior, and margin trends.
+- `08_targeted_ablation.py`: Runs targeted ablation experiments to test the contribution of selected feature groups.
+- `run_all.py`: Provides a convenient runner that executes the main RML2016.10b pipeline scripts in sequence.
 
-- `rule_gate.py`  
-  Legacy experimental utility for rule-based modulation grouping and SNR soft gating. It is not imported by the current training, evaluation, or analysis pipeline and is retained only as historical reference.
+### Feature and utility modules
+- `feature_extraction.py`: Implements the main handcrafted feature extractor, including baseline, analog, QAM, IQ-geometry, and wavelet features.
+- `feature_enhancer.py`: Implements additional disambiguation features for difficult modulation pairs such as QAM, phase, envelope, and instantaneous-frequency cases.
+- `evaluation_utils.py`: Contains shared utility functions for confidence margins, abstention thresholds, confusion matrix plotting, and evaluation summaries.
 
-- `evaluation_utils.py`  
-  Shared evaluation utilities. It provides functions for confidence-margin computation, abstention logic, threshold learning, and plotting.
+### CustomMOD generalization scripts
+- `09_inspect_custommod.py`: Inspects the CustomMOD-2026.a HDF5 dataset and reports its keys, array shapes, class information, and SNR values.
+- `10_prepare_custommod_overlap.py`: Reads CustomMOD-2026.a, maps its labels to the model-known label space, discards unseen modulation types, and saves the overlap-only evaluation subset.
+- `11_eval_custommod_generalization.py`: Extracts handcrafted features for the overlap subset, runs the trained RML2016.10b model, reports overall and per-class accuracy, and saves the generalization confusion matrix.
 
-- `05_eval_by_snr.py`  
-  Evaluates overall model performance as a function of SNR and generates performance curves.
+## Method Summary
 
-- `06_analyze_confidence.py`  
-  Analyzes confidence statistics and accepted-sample behavior under the abstention framework.
+### Original RML2016.10b training pipeline
+The main model is trained on the RML2016.10b dataset. Raw I/Q samples are converted into a combined handcrafted feature vector. The resulting features are standardized and passed through a generative model (QDA, with GaussianNB fallback if needed). The log-posterior outputs and their margin are then concatenated with the original scaled features and used as meta-features for a final XGBoost classifier.
 
-- `07_analyze_by_snr.py`  
-  Performs more detailed SNR-stratified performance and confusion analysis.
+### Cross-dataset generalization pipeline
+The CustomMOD-2026.a dataset is stored in HDF5 format with shape `(samples, 128, 2)`, one-hot labels, and SNR values. Since the original model was trained on only 10 RML classes, the generalization scripts first filter the CustomMOD dataset to keep only overlapping modulation types. The retained subset is then evaluated by the same trained RML2016.10b model.
 
-- `08_targeted_ablation.py`  
-  Runs ablation experiments to test the contribution of specific newly designed feature groups.
+The overlap currently used by the scripts is:
+- `BPSK`
+- `QPSK`
+- `8PSK`
+- `16QAM -> QAM16`
+- `64QAM -> QAM64`
 
-## Data Source
-This project uses the RML2016.10b dataset, a widely used benchmark dataset for automatic modulation classification research. The dataset contains complex IQ radio signal samples spanning multiple digital and analog modulation types under a range of signal-to-noise ratio (SNR) conditions. In this project, the dataset serves as the raw source for feature extraction, model training, and evaluation.
+All other CustomMOD classes are discarded during overlap preparation because the original trained model never saw them.
 
-## References
-1. RML2016.10a / RadioML dataset materials and related open-source benchmark resources.
+## Required Packages
+Install the following packages before running the code:
 
-2. Pedregosa et al., “Scikit-learn: Machine Learning in Python,” *Journal of Machine Learning Research*, 2011.
+```bash
+pip install numpy scipy scikit-learn xgboost joblib pandas matplotlib seaborn PyWavelets h5py tqdm
+```
 
-3. Chen, T. and Guestrin, C., “XGBoost: A Scalable Tree Boosting System,” *Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining*, 2016.
+## Data and Model Placement
+This submission follows the requested zip structure and therefore includes a `data/` folder with instructions only.
+
+To preserve the original working pipeline, the scripts keep the same relative paths used during development.
+
+### 1. Original RML dataset
+Dataset source:
+[RML2016.10b Kaggle page](https://www.kaggle.com/datasets/marwanabudeeb/rml201610b)
+
+Expected file placement:
+
+```text
+Project_Root/
+|-- RML2016.10b.dat/
+|   |-- RML2016.10b.dat
+```
+
+Expected runtime path used by the scripts:
+
+```text
+./RML2016.10b.dat/RML2016.10b.dat
+```
+
+This dataset is used for:
+- inspection
+- train / validation / test split preparation
+- handcrafted feature extraction
+- training the QDA + XGBoost AMC pipeline
+- evaluation by SNR and confidence
+
+### 2. CustomMOD dataset
+Dataset source:
+[CustomMOD-2026.a on Zenodo](https://zenodo.org/records/18505222)
+
+Expected file placement:
+
+```text
+Project_Root/
+|-- RML2016.10b.dat/
+|   |-- CustomMOD-2026.a.h5
+```
+
+Expected runtime path used by the scripts:
+
+```text
+./RML2016.10b.dat/CustomMOD-2026.a.h5
+```
+
+This dataset is used only for external generalization testing.
+
+### 3. Trained model files
+The evaluation scripts expect the following model artifacts inside `./models/`:
+
+- `scaler_perkey2000.joblib`
+- `gen_model_qda_perkey2000.joblib`
+- `xgb_model_perkey2000.joblib`
+- `label_encoder_perkey2000.joblib`
+
+These model files are included in this submission folder.
+
+## How to Run
+
+### 1. Original RML2016.10b pipeline
+Run the full pipeline step by step:
+
+```bash
+python 00_inspect_dataset.py
+python 01_prepare_data.py
+python 03_build_feature_dataset.py
+python 04_train_gated_experts.py
+python 05_eval_by_snr.py
+python 06_analyze_confidence.py
+python 07_analyze_by_snr.py
+```
+
+Or run the default sequence with:
+
+```bash
+python run_all.py
+```
+
+`run_all.py` executes the main RML2016.10b workflow only.
+
+### 2. CustomMOD generalization workflow
+Inspect the HDF5 dataset:
+
+```bash
+python 09_inspect_custommod.py
+```
+
+Prepare the overlap-only evaluation set:
+
+```bash
+python 10_prepare_custommod_overlap.py
+```
+
+Evaluate cross-dataset generalization:
+
+```bash
+python 11_eval_custommod_generalization.py
+```
+
+## Output Files
+
+### Original RML2016.10b evaluation outputs
+Plots are saved to:
+- `plots/`
+- `plots_snr_analysis/`
+
+### CustomMOD generalization outputs
+The generalization evaluation script saves the confusion matrix to:
+
+```text
+plots_generalize_snr_analysis/custommod_generalization_confusion_matrix.png
+```
+
+## Notes
+- The original code files were intentionally preserved rather than rewritten into a new unified `main.py`.
+- Some scripts are preprocessing or analysis scripts rather than standalone end-user programs.
+- The filename `04_train_gated_experts.py` is historical. The current implementation uses a stacked QDA + XGBoost pipeline, not the earlier rule-gated expert design.
+- The CustomMOD evaluation is a true external generalization test, not an in-domain split from the original RML2016.10b dataset.
+
+## Web App
+[Project web app / submission page](https://modulation-classification-5hdddbtdybe38gjzhvht3d.streamlit.app/#submission-information)
